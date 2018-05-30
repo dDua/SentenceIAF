@@ -1,4 +1,4 @@
-This repository is taken from https://github.com/timbmg/Sentence-VAE
+This repository is adapted from https://github.com/timbmg/Sentence-VAE
 
 # Sentence Variational Autoencoder
 
