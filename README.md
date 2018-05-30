@@ -1,6 +1,6 @@
 This repository is adapted from https://github.com/timbmg/Sentence-VAE
 
-# Sentence Variational Autoencoder
+# Sentence Inverse Autoregressive Flow
 
 PyTorch implementation of [_Generating Sentences from a Continuous Space_](https://arxiv.org/abs/1511.06349) by Bowman et al. 2015.
 _Note: This implementation does not support LSTM's at the moment, but RNN's and GRU's._
