@@ -82,5 +82,5 @@ def RNNTextEncoder(nn.Module):
         mean = mean[unsorted_idx]
         std = std[unsorted_idx]
 
-        return mu, sigma
+        return mean, std
 
