@@ -56,7 +56,7 @@ class NormalizingFlow(nn.Module):
         f_z = z
         sum_logdet = 0.0
         for map in self.maps:
-            f_z, h, logdet = map(f_z, h)
+            f_z, logdet = map(f_z, h)
             sum_logdet += logdet
         return f_z, sum_logdet
 
@@ -145,7 +145,5 @@ class PlanarMap(Map):
         # Compute logdet using Equation 12.
         logdet = torch.log(torch.abs(1 + torch.matmul(psi, self.u.t())))
 
-        # h is not used.
-
-        return f_z, h, logdet
+        return f_z, logdet
 
