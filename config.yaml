@@ -1,0 +1,33 @@
+experiment_name: "DEBUG"
+
+data:
+    train: "./data/ptb.train.txt"
+    val: "./data/ptb.valid.txt"
+    test: "./data/ptb.test.txt"
+    vocab: "./data/vocab.txt"
+
+model:
+    dim: 12
+    encoder:
+        embedding_size: 300
+        hidden_size: 256
+        bidirectional: False
+    normalizing_flow:
+        map_type: 'planar'
+        K: 12
+    generator:
+        embedding_size: 300
+        hidden_size: 256
+        dropout_rate: 0.50
+
+training:
+    epochs: 20
+    batch_size: 16
+    learning_rate: 0.001
+    log_frequency: 500
+    beta_0: 0.01
+    beta_growth_rate: 0.0002
+    max_length: 50
+    ckpt_dir: "./data/ckpt"
+    summary_dir: "./data/summary"
+

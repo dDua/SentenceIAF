@@ -1,2 +1,2 @@
-from normalizing_flow import *
-from encoder import *
+from .normalizing_flow import *
+from .encoder import *

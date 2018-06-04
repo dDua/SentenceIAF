@@ -20,15 +20,25 @@ class NormalizingFlow(nn.Module):
 
     Args:
         dim: Dimension of the latent variable.
-        map: Type of map applied at each step of the flow. Should be a subclass
-            of the `Map` object.
+        map_type: Type of map applied at each step of the flow. One of
+            'planar', 'linear', 'resnet'.
         K: Number of maps to apply.
     """
-    def __init__(self, dim, map, K, **kwargs):
+    def __init__(self, dim, map_type, K, **kwargs):
         super(NormalizingFlow, self).__init__()
 
         self.dim = dim
+        self.map_type = map_type
         self.K = K
+
+        if map_type == 'planar':
+            map = PlanarMap
+        elif map_type == 'linear':
+            raise NotImplementedError('LinearMap not currently implemented.')
+        elif map_type == 'resnet':
+            raise NotImplementedError('ResnetMap not currently implemented.')
+        else:
+            raise ValueError('Unknown `map_type`: %s' % map_type)
 
         self.maps = nn.ModuleList([map(dim, **kwargs) for _ in range(K)])
 
@@ -36,19 +46,17 @@ class NormalizingFlow(nn.Module):
         """Computes forward pass of the planar flow.
 
         Args:
-            z: torch.Tensor(batch_size, dim).
-                The latent variable.
+            z: torch.Tensor(batch_size, dim). The latent variable.
 
         Returns:
-            f_z: torch.Tensor(batch_size, dim).
-                The output of the final map
-            sum_logdet: scalar.
-                The sum of the log-determinants of the transformations.
+            f_z: torch.Tensor(batch_size, dim). The output of the final map
+            sum_logdet: scalar. The sum of the log-determinants of the
+                transformations.
         """
         f_z = z
         sum_logdet = 0.0
-        for planar_map in self.planar_maps:
-            f_z, logdet = planar_map(f_z)
+        for map in self.maps:
+            f_z, logdet = map(f_z)
             sum_logdet += logdet
         return f_z, sum_logdet
 
@@ -61,6 +69,7 @@ class Map(nn.Module):
     """
     def __init__(self, dim):
         super(Map, self).__init__()
+        self.dim = dim
 
     def forward(self, z):
         """Computes the forward pass of the map.
@@ -91,7 +100,7 @@ class PlanarMap(Map):
         dim: Dimensionality of the latent variable.
     """
     def __init__(self, dim):
-        super(PlanarMap, self).__init__(dim)
+        super(PlanarMap, self).__init__(dim=dim)
 
         self.u = torch.nn.Parameter(torch.Tensor(1, dim))
         self.w = torch.nn.Parameter(torch.Tensor(1, dim))
@@ -134,7 +143,7 @@ class PlanarMap(Map):
         psi = self.w * (1 - F.tanh(wz + self.b)**2)
 
         # Compute logdet using Equation 12.
-        logdet = torch.log(torch.abs(1 + torch.matmul(self.u, psi.t())))
+        logdet = torch.log(torch.abs(1 + torch.matmul(psi, self.u.t())))
 
         return f_z, logdet
 
