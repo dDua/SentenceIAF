@@ -21,7 +21,7 @@ Usage:
 import argparse
 from collections import Counter
 
-from utils import Vocab
+from vocab import Vocab
 
 
 FLAGS = None
