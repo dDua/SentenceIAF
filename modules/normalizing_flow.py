@@ -42,7 +42,7 @@ class NormalizingFlow(nn.Module):
 
         self.maps = nn.ModuleList([map(dim, **kwargs) for _ in range(K)])
 
-    def forward(self, z):
+    def forward(self, z, h):
         """Computes forward pass of the planar flow.
 
         Args:
@@ -56,7 +56,7 @@ class NormalizingFlow(nn.Module):
         f_z = z
         sum_logdet = 0.0
         for map in self.maps:
-            f_z, logdet = map(f_z)
+            f_z, h, logdet = map(f_z, h)
             sum_logdet += logdet
         return f_z, sum_logdet
 
@@ -71,7 +71,7 @@ class Map(nn.Module):
         super(Map, self).__init__()
         self.dim = dim
 
-    def forward(self, z):
+    def forward(self, z, h):
         """Computes the forward pass of the map.
 
         This method should be implemented for each subclass of Map. This
@@ -116,7 +116,7 @@ class PlanarMap(Map):
         self.w.data.uniform_(-a, a)
         self.b.data.uniform_(-a, a)
 
-    def forward(self, z):
+    def forward(self, z, h):
         """Computes forward pass of the planar map.
 
         Args:
@@ -145,5 +145,7 @@ class PlanarMap(Map):
         # Compute logdet using Equation 12.
         logdet = torch.log(torch.abs(1 + torch.matmul(psi, self.u.t())))
 
-        return f_z, logdet
+        # h is not used.
+
+        return f_z, h, logdet
 

@@ -52,13 +52,13 @@ class RNNTextInferenceNetwork(nn.Module):
         """
         # Compute z_k
         batch_size = x.shape[0]
-        mean, logv = self.encoder(x, lengths)
+        mean, logv, h = self.encoder(x, lengths)
         epsilon = torch.randn(batch_size, self.dim)
         if torch.cuda.is_available():
             epsilon = epsilon.cuda()
         std = torch.exp(0.5 * logv)
         z_0 = mean + std * epsilon
-        z_k, sum_logdet = self.normalizing_flow(z_0)
+        z_k, sum_logdet = self.normalizing_flow(z_0, h)
 
         # Compute KL divergence (discarding constants)
         # Note: Assuming p(z) ~ N(0,I) and q(z) ~ N(mean, sigma**2) (diagonal).

@@ -15,6 +15,8 @@ class RNNTextEncoder(nn.Module):
         embedding_size: Size of word embedding vectors.
         hidden_size: Number of hidden units in each recurrent layer.
         bidirectional: If `True` becomes a bidirectional RNN.
+        h_dim: Dimension of the 'additional vector' h emitted by the encoder.
+            If `None` then no h vector is emitted.
     """
     # TODO: Allow for multiple layers.
     def __init__(self,
@@ -22,7 +24,8 @@ class RNNTextEncoder(nn.Module):
                  vocab_size,
                  embedding_size,
                  hidden_size,
-                 bidirectional=False):
+                 bidirectional=False,
+                 h_dim=None):
         super(RNNTextEncoder, self).__init__()
 
         self.dim = dim
@@ -31,6 +34,7 @@ class RNNTextEncoder(nn.Module):
         self.hidden_size = hidden_size
         self.bidirectional = bidirectional
         self.num_directions = (2 if bidirectional else 1)
+        self.h_dim = h_dim
 
         self.embedding = nn.Embedding(vocab_size, embedding_size)
         self.rnn_encoder = nn.GRU(embedding_size, hidden_size,
@@ -39,6 +43,8 @@ class RNNTextEncoder(nn.Module):
                                   batch_first=True)
         self.hidden2mean = nn.Linear(hidden_size * self.num_directions, dim)
         self.hidden2logv = nn.Linear(hidden_size * self.num_directions, dim)
+        if self.h_dim is not None:
+            self.hidden2h = nn.linear(hidden_size * self.num_directions, h_dim)
 
     def forward(self, x, lengths):
         """Computes forward pass of the text encoder.
@@ -82,5 +88,12 @@ class RNNTextEncoder(nn.Module):
         mean = mean[unsorted_idx]
         logv = logv[unsorted_idx]
 
-        return mean, logv
+        # Compute h vector
+        if self.h_dim is not None:
+            h = self.hidden2h(hidden)
+            h = h[unsorted_idx]
+        else:
+            h = None
+
+        return mean, logv, h
 
