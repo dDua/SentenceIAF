@@ -37,5 +37,5 @@ def annealed_free_energy_loss(logp, target, kl, beta, ignore_index=None):
         loss: scalar. The total loss.
     """
     nll = F.nll_loss(logp, target, ignore_index=ignore_index)
-    return kl + beta * nll
+    return beta * kl + nll
 
