@@ -199,3 +199,43 @@ class RadialMap(Map):
         f_z = z + diff * self.beta_prime * h_func
         logdet = ((1 + self.beta_prime * h_func) ** (self.dim - 1)) * (1 + self.beta_prime * h_func + deriv_h_func * r)
         return f_z, logdet
+
+
+class LinearMap(Map):
+    """The map used in linear IAF step, as described in:
+
+        'Improved Variational Inference with Inverse Autoregressiev Flow'
+            Kingma, Salimans, Jozefowicz, Chen, Sutskever, and Welling, NIPS 2016
+
+    Args:
+        dim: Dimensionality of the latent variable.
+    """
+    def __init__(self, dim):
+        super(LinearMap, self).__init__(dim=dim)
+        self.gru = nn.GRU(dim)
+
+    def forward(self, z, h):
+        """Computes forward pass of the linear map.
+
+        Args:
+            z: torch.Tensor(batch_size, dim).
+                The latent variable.
+
+        Returns:
+            f_z: torch.Tensor(batch_size, dim).
+                The transformed latent variable.
+            logdet: scalar.
+                The log-determinant of the transformation.
+        """
+        # Compute z0 using Equation 9.
+        mu, sigma = self.gru(z, h)
+        n_dist = torch.distributions.multivariate_normal.MultivariateNormal(torch.zeros(self.dim), torch.eye(self.dim))
+        z0 = mu + torch.mul(sigma, n_dist.sample())
+
+        # Compute f_z using Equation in Appendix A.
+        l_mat = torch.zeros(self.dim, self.dim)
+        for i in range(self.dim):
+            for j in range(0, i + 1):
+                l_mat[i][j] = h[i * self.dim + j] if i < j else 1
+        f_z = torch.matmul(l_mat, z0.t())
+        return f_z, torch.zeros(1)
