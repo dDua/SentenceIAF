@@ -36,7 +36,7 @@ class NormalizingFlow(nn.Module):
         elif map_type == 'radial':
             map = RadialMap
         elif map_type == 'linear':
-            raise NotImplementedError('LinearMap not currently implemented.')
+            raise LinearMap
         elif map_type == 'resnet':
             raise NotImplementedError('ResnetMap not currently implemented.')
         else:
