@@ -214,7 +214,6 @@ class LinearMap(Map):
     """
     def __init__(self, dim):
         super(LinearMap, self).__init__(dim=dim)
-        self.gru = nn.GRU(dim)
 
     def forward(self, z, h):
         """Computes forward pass of the linear map.
