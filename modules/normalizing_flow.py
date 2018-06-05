@@ -6,8 +6,7 @@
 """
 from math import sqrt
 
-import torch
-import torch.nn as nn
+import torch import torch.nn as nn
 import torch.nn.functional as F
 
 
@@ -161,20 +160,20 @@ class RadialMap(Map):
     """
     def __init__(self, dim):
         super(RadialMap, self).__init__(dim=dim)
+
         self.z0 = torch.nn.Parameter(torch.Tensor(1, dim))
         self.alpha = torch.nn.Parameter(torch.Tensor(1))
         self.beta = torch.nn.Parameter(torch.Tensor(1))
-        self.beta_prime = torch.nn.Parameter(torch.Tensor(1))
+
         self.reset_parameters()
 
     def reset_parameters(self):
         """Resets radial map parameters."""
         a = sqrt(6 / self.dim)
+
         self.z0.data.uniform_(-a, a)
         self.alpha.data.uniform_(-a, a)
         self.beta.data.uniform_(-a, a)
-        # Ensure invertibility using approach in appendix A.2
-        self.beta_prime = -self.alpha + torch.log(1 + torch.exp(self.beta))
 
     def forward(self, z, h):
         """Computes forward pass of the radial map.
@@ -189,15 +188,18 @@ class RadialMap(Map):
             logdet: scalar.
                 The log-determinant of the transformation.
         """
-
-        diff = z - self.z0
-        r = torch.abs(diff)
-        h_func = 1 / (self.alpha + r)
-        deriv_h_func = - (h ** 2)
+        # Ensure invertibility using approach in appendix A.2
+        beta_prime = -self.alpha + torch.softplus(self.beta)
 
         # Compute f_z and logdet using Equation 14.
-        f_z = z + diff * self.beta_prime * h_func
-        logdet = ((1 + self.beta_prime * h_func) ** (self.dim - 1)) * (1 + self.beta_prime * h_func + deriv_h_func * r)
+        diff = z - self.z0
+        r = torch.abs(diff)
+        h = 1 / (self.alpha + r)
+        dh = - (h ** 2)
+
+        f_z = z + beta_prime * h * diff
+        logdet = (1 + beta_prime * h)**(self.dim - 1) * (1 + beta_prime*h + beta_prime * dh * r)
+
         return f_z, logdet
 
 
@@ -227,15 +229,11 @@ class LinearMap(Map):
             logdet: scalar.
                 The log-determinant of the transformation.
         """
-        # Compute z0 using Equation 9.
-        mu, sigma = self.gru(z, h)
-        n_dist = torch.distributions.multivariate_normal.MultivariateNormal(torch.zeros(self.dim), torch.eye(self.dim))
-        z0 = mu + torch.mul(sigma, n_dist.sample())
-
         # Compute f_z using Equation in Appendix A.
         l_mat = torch.zeros(self.dim, self.dim)
         for i in range(self.dim):
             for j in range(0, i + 1):
-                l_mat[i][j] = h[i * self.dim + j] if i < j else 1
-        f_z = torch.matmul(l_mat, z0.t())
-        return f_z, torch.zeros(1)
+                l_mat[:,i,j] = h[:, i*self.dim + j] if i < j else 1
+        f_z = torch.matmul(l_mat, z.t())
+        return f_z, 0
+
