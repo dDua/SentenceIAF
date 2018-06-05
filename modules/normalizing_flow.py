@@ -33,6 +33,8 @@ class NormalizingFlow(nn.Module):
 
         if map_type == 'planar':
             map = PlanarMap
+        elif map_type == 'radial':
+            map = RadialMap
         elif map_type == 'linear':
             raise NotImplementedError('LinearMap not currently implemented.')
         elif map_type == 'resnet':
@@ -147,3 +149,53 @@ class PlanarMap(Map):
 
         return f_z, logdet
 
+
+class RadialMap(Map):
+    """The map used in radial flows, as described in:
+
+        'Variational Inference with Normalizing Flows'
+            Rezende and Mohamed, ICML 2015
+
+    Args:
+        dim: Dimensionality of the latent variable.
+    """
+    def __init__(self, dim):
+        super(RadialMap, self).__init__(dim=dim)
+        self.z0 = torch.nn.Parameter(torch.Tensor(1, dim))
+        self.alpha = torch.nn.Parameter(torch.Tensor(1))
+        self.beta = torch.nn.Parameter(torch.Tensor(1))
+        self.beta_prime = torch.nn.Parameter(torch.Tensor(1))
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        """Resets radial map parameters."""
+        a = sqrt(6 / self.dim)
+        self.z0.data.uniform_(-a, a)
+        self.alpha.data.uniform_(-a, a)
+        self.beta.data.uniform_(-a, a)
+        # Ensure invertibility using approach in appendix A.2
+        self.beta_prime = -self.alpha + torch.log(1 + torch.exp(self.beta))
+
+    def forward(self, z, h):
+        """Computes forward pass of the radial map.
+
+        Args:
+            z: torch.Tensor(batch_size, dim).
+                The latent variable.
+
+        Returns:
+            f_z: torch.Tensor(batch_size, dim).
+                The transformed latent variable.
+            logdet: scalar.
+                The log-determinant of the transformation.
+        """
+
+        diff = z - self.z0
+        r = torch.abs(diff)
+        h_func = 1 / (self.alpha + r)
+        deriv_h_func = - (h ** 2)
+
+        # Compute f_z and logdet using Equation 14.
+        f_z = z + diff * self.beta_prime * h_func
+        logdet = ((1 + self.beta_prime * h_func) ** (self.dim - 1)) * (1 + self.beta_prime * h_func + deriv_h_func * r)
+        return f_z, logdet
