@@ -229,11 +229,15 @@ class LinearMap(Map):
             logdet: scalar.
                 The log-determinant of the transformation.
         """
+        batch_size = z.shape[0]
+
         # Compute f_z using Equation in Appendix A.
-        l_mat = torch.zeros(self.dim, self.dim)
+        l_mat = torch.zeros(batch_size, self.dim, self.dim)
+        k = 0
         for i in range(self.dim):
             for j in range(0, i + 1):
-                l_mat[:,i,j] = h[:, i*self.dim + j] if i < j else 1
-        f_z = torch.matmul(l_mat, z.t())
+                l_mat[:, i, j] = h[:, k] if i < j else 1
+                k += 1
+        f_z = torch.matmul(l_mat, z.unsqueeze(2)).squeeze()
         return f_z, 0
 
