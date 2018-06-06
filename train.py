@@ -16,7 +16,6 @@
 
 import argparse
 import os
-import json
 import logging
 import shutil
 import torch
@@ -127,10 +126,6 @@ def main(_):
     valid_data = TextDataset(config['data']['valid'],
                              vocab=vocab,
                              max_length=config['training']['max_length'])
-    logging.debug('pad_idx: %i' % vocab.pad_idx)
-    logging.debug('sos_idx: %i' % vocab.sos_idx)
-    logging.debug('eos_idx: %i' % vocab.eos_idx)
-    logging.debug('unk_idx: %i' % vocab.unk_idx)
 
     # Initialize models
     logging.info('Initializing the inference network and generative model.')
@@ -287,9 +282,7 @@ def main(_):
             z, kl = inference_network(x, lengths)
 
             # Teacher forcing
-            x_hat = word_dropout(x, config['training']['word_dropout_rate'],
-                                 vocab.unk_idx)
-            logp, _ = generative_model(z, x_hat, lengths)
+            logp, _ = generative_model(z, x, lengths)
 
             # Compute annealed loss
             length = logp.shape[1]
