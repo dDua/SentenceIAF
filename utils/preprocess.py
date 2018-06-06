@@ -32,6 +32,7 @@ def main(_):
     with open(FLAGS.input, 'r') as f:
         for line in f:
             counter.update(line.split())
+    counter = Counter({x: y for x, y in counter.items() if y > FLAGS.min_freq})
     vocab = Vocab(counter)
     with open(FLAGS.output, 'w') as f:
         vocab.write(f)
@@ -41,6 +42,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('input', type=str, help='Input text file.')
     parser.add_argument('output', type=str, help='Path to save vocab to.')
+    parser.add_argument('--min_freq', type=int, default=1,
+                        help='Minimum number of times word must occur.')
     FLAGS, _ = parser.parse_known_args()
 
     main(_)
