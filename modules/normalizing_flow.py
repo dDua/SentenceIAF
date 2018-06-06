@@ -199,7 +199,8 @@ class RadialMap(Map):
         dh = - (h ** 2)
 
         f_z = z + beta_prime * h * diff
-        logdet = (1 + beta_prime * h)**(self.dim - 1) * (1 + beta_prime*h + beta_prime * dh * r)
+        det = (1 + beta_prime * h)**(self.dim - 1) * (1 + beta_prime * h + beta_prime * dh * r)
+        logdet =  torch.log(det)
 
         return f_z, logdet
 
