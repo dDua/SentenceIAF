@@ -194,7 +194,7 @@ class RadialMap(Map):
 
         # Compute f_z and logdet using Equation 14.
         diff = z - self.z0
-        r = torch.abs(diff)
+        r = torch.norm(diff)
         h = 1 / (self.alpha + r)
         dh = - (h ** 2)
 
