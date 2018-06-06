@@ -32,7 +32,7 @@ from collections import defaultdict
 from data import TextDataset
 from model import RNNTextInferenceNetwork, RNNTextGenerativeModel
 from losses import annealed_free_energy_loss
-from utils import Vocab, configure_logging
+from utils import Vocab, configure_logging, word_dropout
 
 
 FLAGS = None
@@ -74,7 +74,7 @@ def safe_copy_config(config, force_overwrite=False):
                          'configuration.')
     else:
         logging.info('No existing configuration found. Copying config file '
-                     'to "%s".' % config_path)
+                     'to `%s`.' % config_path)
         shutil.copyfile(FLAGS.config, config_path)
 
 
@@ -82,6 +82,13 @@ def get_beta(config, t):
     beta_0 = config['training']['beta_0']
     beta_growth_rate = config['training']['beta_growth_rate']
     return min(1.0, beta_0 + t * beta_growth_rate)
+
+
+def save_checkpoint(state, is_best, filename):
+    logging.info('Saving checkpoint to: `%s`.' % filename)
+    torch.save(state, filename)
+    if is_best:
+        shutil.copyfile(filename, filename+'.best')
 
 
 def main(_):
@@ -138,24 +145,38 @@ def main(_):
         inference_network = inference_network.cuda()
         generative_model = generative_model.cuda()
 
-    # TODO: Restore model checkpoints
-    # logging.info('Model checkpoint detected at: `%s`. Restoring.' % ckpt)
-    epoch = 0
-    t = 0
-
     # Setup model optimizers
     optimizer_in = torch.optim.Adam(inference_network.parameters(),
                                     lr=config['training']['learning_rate'])
     optimizer_gm = torch.optim.Adam(generative_model.parameters(),
                                     lr=config['training']['learning_rate'])
 
+    # Restore
+    ckpt = os.path.join(ckpt_dir, 'model.pt')
+    if os.path.exists(ckpt):
+        logging.info('Model checkpoint detected at: `%s`. Restoring.' % ckpt)
+        checkpoint = torch.load(ckpt)
+        epoch = checkpoint['epoch']
+        t = checkpoint['t']
+        best_loss = checkpoint['best_loss']
+        inference_network.load_state_dict(checkpoint['state_dict_in'])
+        generative_model.load_state_dict(checkpoint['state_dict_gm'])
+        optimizer_in.load_state_dict(checkpoint['optimizer_in'])
+        optimizer_gm.load_state_dict(checkpoint['optimizer_gm'])
+    else:
+        logging.info('No existing checkpoint found.')
+        epoch = 0
+        t = 0
+        best_loss = float('inf')
+
     # Start training
     while epoch < config['training']['epochs']:
         logging.info('Starting epoch - %i.' % epoch)
 
-        # Training step
         inference_network.train()
         generative_model.train()
+
+        # Training step
         training_loader = DataLoader(
             dataset=train_data,
             batch_size=config['training']['batch_size'],
@@ -164,6 +185,10 @@ def main(_):
             pin_memory=torch.cuda.is_available())
 
         for batch in training_loader:
+
+            optimizer_in.zero_grad()
+            optimizer_gm.zero_grad()
+
             x = batch['input']
             target = batch['target']
             lengths = batch['lengths']
@@ -175,10 +200,10 @@ def main(_):
             # Forward pass of inference network
             z, kl = inference_network(x, lengths)
 
-            # Forward pass of the generator
-            # TODO: Right now using just teacher forcing. Allow sampling to be
-            # used as well.
-            logp = generative_model(z, x, lengths)
+            # Teacher forcing
+            x_hat = word_dropout(x, config['training']['word_dropout_rate'],
+                                 vocab.unk_idx)
+            logp, _ = generative_model(z, x_hat, lengths)
 
             # Obtain current value of the annealing constant
             beta = get_beta(config, t)
@@ -191,8 +216,6 @@ def main(_):
                                              ignore_index=vocab.pad_idx)
 
             # Backpropagate gradients
-            optimizer_in.zero_grad()
-            optimizer_gm.zero_grad()
             loss.backward()
             optimizer_in.step()
             optimizer_gm.step()
@@ -201,17 +224,39 @@ def main(_):
             if not t % config['training']['log_frequency']:
                 logging.info('Iteration: %i - Loss: %0.4f.' % (t, loss))
                 # Print a greedy sample
-                logp = generative_model(z, x, lengths)
-                preds = torch.argmax(logp, dim=-1)
-                example = ' '.join(vocab.id2word(x) for x in preds[0])
+                z = torch.randn(1, config['model']['dim'])
+                if torch.cuda.is_available:
+                    z = z.cuda()
+                logp, sample = generative_model(z)
+                example = [vocab.id2word(int(x)) for x in sample[0]]
+                try:
+                    T = example.index(vocab.eos_token)
+                    example = example[:T]
+                except ValueError:
+                    pass
+                example = ' '.join(example)
                 logging.info('Example - `%s`' % example)
 
             t += 1
 
+        # TODO: Evaluate validation loss.
+
+        # TODO: Log to tensorboard
+
+        # Save checkpoint.
+        is_best = loss < best_loss
+        best_loss = min(loss, best_loss)
+        save_checkpoint({
+            'epoch': epoch + 1,
+            't': t,
+            'best_loss': best_loss,
+            'state_dict_in': inference_network.state_dict(),
+            'state_dict_gm': generative_model.state_dict(),
+            'optimizer_in': optimizer_in.state_dict(),
+            'optimizer_gm': optimizer_gm.state_dict()
+        }, is_best, ckpt)
+
         epoch += 1
-
-
-
 
             # if args.tensorboard_logging:
             #     writer.add_scalar("%s/ELBO"%split.upper(), loss.data[0], epoch*len(data_loader) + iteration)
