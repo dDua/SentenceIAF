@@ -18,7 +18,6 @@ model:
     generator:
         embedding_size: 300
         hidden_size: 256
-        dropout_rate: 0.50
 
 training:
     epochs: 20
@@ -30,4 +29,5 @@ training:
     max_length: 50
     ckpt_dir: "./data/ckpt"
     summary_dir: "./data/summary"
+    word_dropout_rate: 0.75
 
