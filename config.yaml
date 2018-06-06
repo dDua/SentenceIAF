@@ -1,32 +1,32 @@
-experiment_name: "DEBUG"
+experiment_name: "DEBUG-TENSORBOARD"
 
 data:
     train: "./data/ptb.train.txt"
-    val: "./data/ptb.valid.txt"
+    valid: "./data/ptb.valid.txt"
     test: "./data/ptb.test.txt"
-    vocab: "./data/vocab.txt"
+    vocab: "./data/ptb.vocab.txt"
 
 model:
-    dim: 12
+    dim: 16
     encoder:
         embedding_size: 300
         hidden_size: 256
         bidirectional: False
-        h_dim: 66 # should be dim * (dim - 1) / 2 if map_type is 'linear'
+        # h_dim: 66 # should be dim * (dim - 1) / 2 if map_type is 'linear'
     normalizing_flow:
         map_type: 'planar'
-        K: 12
+        K: 16
     generator:
         embedding_size: 300
         hidden_size: 256
 
 training:
-    epochs: 20
-    batch_size: 16
-    learning_rate: 0.001
-    log_frequency: 500
-    beta_0: 0.01
-    beta_growth_rate: 0.0002
+    epochs: 50
+    batch_size: 32
+    learning_rate: 0.0003
+    log_frequency: 100
+    beta_0: -10.0
+    beta_growth_rate: 0.002
     max_length: 50
     ckpt_dir: "./data/ckpt"
     summary_dir: "./data/summary"

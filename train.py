@@ -18,20 +18,17 @@ import argparse
 import os
 import json
 import logging
-import numpy as np
 import shutil
-import sys
-import time
 import torch
+import torch.nn.functional as F
 import yaml
+from math import exp
 from multiprocessing import cpu_count
 from tensorboardX import SummaryWriter
 from torch.utils.data import DataLoader
-from collections import defaultdict
 
 from data import TextDataset
 from model import RNNTextInferenceNetwork, RNNTextGenerativeModel
-from losses import annealed_free_energy_loss
 from utils import Vocab, configure_logging, word_dropout
 
 
@@ -81,7 +78,9 @@ def safe_copy_config(config, force_overwrite=False):
 def get_beta(config, t):
     beta_0 = config['training']['beta_0']
     beta_growth_rate = config['training']['beta_growth_rate']
-    return min(1.0, beta_0 + t * beta_growth_rate)
+    linear = beta_0 + t * beta_growth_rate
+    beta = (1 + exp(-1 * linear))**-1
+    return beta
 
 
 def save_checkpoint(state, is_best, filename):
@@ -112,6 +111,7 @@ def main(_):
     if not os.path.exists(summary_dir):
         logging.info('Creating summary directory: `%s`.' % summary_dir)
         os.makedirs(summary_dir)
+    summary_writer =  SummaryWriter(summary_dir)
 
     # Check for conflicting configurations
     safe_copy_config(config, FLAGS.force_overwrite)
@@ -120,13 +120,17 @@ def main(_):
     logging.info('Loading the vocabulary.')
     with open(config['data']['vocab'], 'r') as f:
         vocab = Vocab.load(f)
-    logging.info('Loading training and validation data.')
+    logging.info('Loading train and valid data.')
     train_data = TextDataset(config['data']['train'],
                              vocab=vocab,
                              max_length=config['training']['max_length'])
-    val_data = TextDataset(config['data']['val'],
-                           vocab=vocab,
-                           max_length=config['training']['max_length'])
+    valid_data = TextDataset(config['data']['valid'],
+                             vocab=vocab,
+                             max_length=config['training']['max_length'])
+    logging.debug('pad_idx: %i' % vocab.pad_idx)
+    logging.debug('sos_idx: %i' % vocab.sos_idx)
+    logging.debug('eos_idx: %i' % vocab.eos_idx)
+    logging.debug('unk_idx: %i' % vocab.unk_idx)
 
     # Initialize models
     logging.info('Initializing the inference network and generative model.')
@@ -169,7 +173,7 @@ def main(_):
         t = 0
         best_loss = float('inf')
 
-    # Start training
+    # Start train
     while epoch < config['training']['epochs']:
         logging.info('Starting epoch - %i.' % epoch)
 
@@ -177,14 +181,20 @@ def main(_):
         generative_model.train()
 
         # Training step
-        training_loader = DataLoader(
+        logging.info('Start train step.')
+        train_loader = DataLoader(
             dataset=train_data,
             batch_size=config['training']['batch_size'],
             shuffle=True,
             num_workers=cpu_count(),
             pin_memory=torch.cuda.is_available())
 
-        for batch in training_loader:
+        # Init train summaries
+        train_nll = 0.0
+        train_kl = 0.0
+        train_loss = 0.0
+
+        for batch in train_loader:
 
             optimizer_in.zero_grad()
             optimizer_gm.zero_grad()
@@ -208,21 +218,31 @@ def main(_):
             # Obtain current value of the annealing constant
             beta = get_beta(config, t)
 
-            # Compute loss
+            # Compute annealed loss
             length = logp.shape[1]
             logp = logp.view(-1, len(vocab))
             target = target[:,:length].contiguous().view(-1)
-            loss = annealed_free_energy_loss(logp, target, kl, beta,
-                                             ignore_index=vocab.pad_idx)
+            nll = F.nll_loss(logp, target, ignore_index=vocab.pad_idx,
+                             size_average=False)
+            loss = nll + beta * kl
+
+            # Update summaries
+            train_nll += nll.data
+            train_kl += kl.data
+            train_loss += loss.data
 
             # Backpropagate gradients
+            loss /= config['training']['batch_size']
             loss.backward()
             optimizer_in.step()
             optimizer_gm.step()
 
             # Log
             if not t % config['training']['log_frequency']:
-                logging.info('Iteration: %i - Loss: %0.4f.' % (t, loss))
+                # Note: logged train loss only for a single batch - see
+                # tensorboard for summary over epochs
+                logging.info('Iteration: %i - Training Loss: %0.4f.' % (t, loss))
+
                 # Print a greedy sample
                 z = torch.randn(1, config['model']['dim'])
                 if torch.cuda.is_available:
@@ -239,12 +259,69 @@ def main(_):
 
             t += 1
 
-        # TODO: Evaluate validation loss.
+        # Validation step
+        logging.info('Start valid step.')
+        valid_loader = DataLoader(
+            dataset=valid_data,
+            batch_size=config['training']['batch_size'],
+            shuffle=False,
+            num_workers=cpu_count(),
+            pin_memory=torch.cuda.is_available())
 
-        # TODO: Log to tensorboard
+        # Init valid summaries
+        valid_nll = 0.0
+        valid_kl = 0.0
+        valid_loss = 0.0
 
-        # Save checkpoint.
-        is_best = loss < best_loss
+        for batch in valid_loader:
+
+            x = batch['input']
+            target = batch['target']
+            lengths = batch['lengths']
+            if torch.cuda.is_available():
+                x = x.cuda()
+                target = target.cuda()
+                lengths = lengths.cuda()
+
+            # Forward pass of inference network
+            z, kl = inference_network(x, lengths)
+
+            # Teacher forcing
+            x_hat = word_dropout(x, config['training']['word_dropout_rate'],
+                                 vocab.unk_idx)
+            logp, _ = generative_model(z, x_hat, lengths)
+
+            # Compute annealed loss
+            length = logp.shape[1]
+            logp = logp.view(-1, len(vocab))
+            target = target[:,:length].contiguous().view(-1)
+            nll = F.nll_loss(logp, target, ignore_index=vocab.pad_idx,
+                             size_average=False)
+            loss = nll + kl
+
+            # Update summaries
+            valid_nll += nll.data
+            valid_kl += kl.data
+            valid_loss += loss.data
+
+        # Normalize losses
+        train_nll /= len(train_data)
+        train_kl /= len(train_data)
+        train_loss /= len(train_data)
+        valid_nll /= len(valid_data)
+        valid_kl /= len(valid_data)
+        valid_loss /= len(valid_data)
+
+        # Tensorboard logging
+        summary_writer.add_scalar("elbo/train", train_loss.data, epoch)
+        summary_writer.add_scalar("kl/train", train_kl.data, epoch)
+        summary_writer.add_scalar("nll/train", train_nll.data, epoch)
+        summary_writer.add_scalar("elbo/val", valid_loss.data, epoch)
+        summary_writer.add_scalar("kl/val", valid_kl.data, epoch)
+        summary_writer.add_scalar("nll/val", valid_nll.data, epoch)
+
+        # Save checkpoint
+        is_best = valid_loss < best_loss
         best_loss = min(loss, best_loss)
         save_checkpoint({
             'epoch': epoch + 1,
@@ -257,24 +334,6 @@ def main(_):
         }, is_best, ckpt)
 
         epoch += 1
-
-            # if args.tensorboard_logging:
-            #     writer.add_scalar("%s/ELBO"%split.upper(), loss.data[0], epoch*len(data_loader) + iteration)
-            #     writer.add_scalar("%s/NLL Loss"%split.upper(), NLL_loss.data[0]/batch_size, epoch*len(data_loader) + iteration)
-            #     writer.add_scalar("%s/KL Loss"%split.upper(), KL_loss.data[0]/batch_size, epoch*len(data_loader) + iteration)
-            #     writer.add_scalar("%s/KL Weight"%split.upper(), KL_weight, epoch*len(data_loader) + iteration)
-
-            #     if iteration % args.print_every == 0 or iteration+1 == len(data_loader):
-            #         print("%s Batch %04d/%i, Loss %9.4f, NLL-Loss %9.4f, KL-Loss %9.4f, KL-Weight %6.3f"
-            #             %(split.upper(), iteration, len(data_loader)-1, loss.data[0], NLL_loss.data[0]/batch_size, KL_loss.data[0]/batch_size, KL_weight))
-
-            #     if split == 'valid':
-            #         if 'target_sents' not in tracker:
-            #             tracker['target_sents'] = list()
-            #         tracker['target_sents'] += idx2word(batch['target'].data, i2w=datasets['train'].get_i2w(), pad_idx=datasets['train'].pad_idx)
-            #         tracker['z'] = torch.cat((tracker['z'], z.data), dim=0)
-
-            # print("%s Epoch %02d/%i, Mean ELBO %9.4f"%(split.upper(), epoch, args.epochs, torch.mean(tracker['ELBO'])))
 
 
 if __name__ == '__main__':

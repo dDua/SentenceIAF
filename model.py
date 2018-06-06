@@ -57,16 +57,16 @@ class RNNTextInferenceNetwork(nn.Module):
         epsilon = torch.randn(batch_size, self.dim)
         if torch.cuda.is_available():
             epsilon = epsilon.cuda()
-        std = torch.exp(0.5 * logv)
+        std = torch.exp(logv)
         z_0 = mean + std * epsilon
         z_k, sum_logdet = self.normalizing_flow(z_0, h)
 
         # Compute KL divergence (discarding constants)
         # Note: Assuming p(z) ~ N(0,I) and q(z) ~ N(mean, sigma**2) (diagonal).
-        log_p_zk = torch.sum(-0.5 * z_k**2, dim=1)
-        log_q_z0 = torch.sum(-0.5 * (logv + (z_0 - mean)**2) / torch.exp(logv), dim=1)
+        log_p_zk = -0.5 * torch.sum(z_k ** 2)
+        log_q_z0 = -0.5 * torch.sum(logv + (z_0 - mean)**2 / std)
+        sum_logdet = torch.sum(sum_logdet)
         kl = log_q_z0 - sum_logdet - log_p_zk
-        kl = torch.mean(kl)
 
         return z_k, kl
 
@@ -111,7 +111,6 @@ class RNNTextGenerativeModel(nn.Module):
             logp: torch.Tensor(batch_size, seq_length). Log-probabilities of
                 the output.
         """
-
         # Greedy sampling
         if x is None:
             batch_size = z.shape[0]
@@ -141,13 +140,6 @@ class RNNTextGenerativeModel(nn.Module):
                 logp[:,i,:] = F.log_softmax(logits, dim=-1)
 
                 # Sample greedily from outputs
-                # if i == 0:
-                #     _, candidates = logits.topk(5)
-                #     k = random.randint(0, 4)
-                #     x = candidates[:, k]
-                #     x.unsqueeze_(-1)
-                # else:
-                #     _, x = logits.topk(1)
                 _, x = logits.topk(1)
                 sample[:, i] = x
                 x = x.detach()
