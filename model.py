@@ -14,6 +14,7 @@
 # ==============================================================================
 """Implementations of the inference network and generative model."""
 
+# import random
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -115,15 +116,19 @@ class RNNTextGenerativeModel(nn.Module):
         if x is None:
             batch_size = z.shape[0]
             x = self.sos_idx * torch.ones(batch_size, 1, dtype=torch.int64)
+            sample = torch.zeros(batch_size, self.max_length)
             if torch.cuda.is_available():
                 x = x.cuda()
-            logp = []
+                sample = sample.cuda()
 
             # Initial hidden state
             hidden = self.latent2hidden(z)
             hidden.unsqueeze_(0)
 
             logp = torch.zeros(batch_size, self.max_length, self.vocab_size)
+            if torch.cuda.is_available():
+                logp = logp.cuda()
+
             for i in range(self.max_length):
                 # Embed
                 embeddings = self.embedding(x)
@@ -132,14 +137,20 @@ class RNNTextGenerativeModel(nn.Module):
                 rnn_out, hidden = self.decoder_rnn(embeddings, hidden)
 
                 # Compute outputs
-                logits = self.hidden2logp(rnn_out)
+                logits = self.hidden2logp(rnn_out).squeeze(1)
                 logp[:,i,:] = F.log_softmax(logits, dim=-1)
 
                 # Sample greedily from outputs
-                x = torch.argmax(logits, dim=1)
-
-            # TODO: Check the shape of this...
-            logp = torch.tensor(logp, dtype=torch.float32)
+                # if i == 0:
+                #     _, candidates = logits.topk(5)
+                #     k = random.randint(0, 4)
+                #     x = candidates[:, k]
+                #     x.unsqueeze_(-1)
+                # else:
+                #     _, x = logits.topk(1)
+                _, x = logits.topk(1)
+                sample[:, i] = x
+                x = x.detach()
 
         # Teacher forcing
         else:
@@ -168,5 +179,7 @@ class RNNTextGenerativeModel(nn.Module):
             # Stupid torch sequence unsorting -_-
             logp = logp[unsorted_idx]
 
-        return logp
+            sample = None
+
+        return logp, sample
 
