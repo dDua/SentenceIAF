@@ -77,7 +77,6 @@ class RNNTextGenerativeModel(nn.Module):
                  vocab_size,
                  hidden_size,
                  embedding_size,
-                 dropout_rate,
                  sos_idx,
                  max_length):
         super(RNNTextGenerativeModel, self).__init__()
@@ -88,10 +87,8 @@ class RNNTextGenerativeModel(nn.Module):
         self.hidden_size = hidden_size
         self.embedding_size = embedding_size
         self.max_length = max_length
-        self.dropout_rate = dropout_rate
 
         self.embedding = nn.Embedding(vocab_size, embedding_size)
-        self.word_dropout = nn.Dropout(dropout_rate)
         self.latent2hidden = nn.Linear(dim, hidden_size)
         self.decoder_rnn = nn.GRU(embedding_size, hidden_size,
                                   num_layers=1,
@@ -129,7 +126,7 @@ class RNNTextGenerativeModel(nn.Module):
             logp = torch.zeros(batch_size, self.max_length, self.vocab_size)
             for i in range(self.max_length):
                 # Embed
-                embeddings = self.word_dropout(self.embedding(x))
+                embeddings = self.embedding(x)
 
                 # Feed through RNN
                 rnn_out, hidden = self.decoder_rnn(embeddings, hidden)
@@ -157,7 +154,7 @@ class RNNTextGenerativeModel(nn.Module):
             hidden.unsqueeze_(0)
 
             # Embed
-            embeddings = self.word_dropout(self.embedding(x))
+            embeddings = self.embedding(x)
 
             # Feed through RNN
             packed = pack_padded_sequence(embeddings, sorted_lengths, batch_first=True)

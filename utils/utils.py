@@ -30,7 +30,7 @@ def configure_logging(debug_log=None):
     formatter = logging.Formatter(format)
     # Get root level logger
     root_logger = logging.getLogger()
-    root_logger.setLevel(logging.INFO)
+    root_logger.setLevel(logging.DEBUG)
     # Stream INFO level logging events to console
     ch = logging.StreamHandler()
     ch.setLevel(logging.INFO)
@@ -44,6 +44,27 @@ def configure_logging(debug_log=None):
         root_logger.addHandler(fh)
         logging.info('DEBUG level logging enabled. '
                      'Log written to: `%s`.' % debug_log)
+
+
+def word_dropout(x, word_dropout_rate, unk_id):
+    """Applies word dropout as described in:
+
+        Generating Sentences from a Continuous Space
+        Bowman et al. CoNLL 2016
+
+    Args:
+        x: torch.Tensor. Tensor of word ids to apply dropout to.
+        word_dropout_rate: scalar. Probability of dropping a word.
+        unk_id: int. Id of unk_token in the vocabulary.
+
+    Returns:
+        x_hat: torch.Tensor. Copy of `x` with some elements randomly replaced
+            by `unk_id`.
+    """
+    x_hat = x
+    p = torch.rand(x.shape)
+    x_hat[p < word_dropout_rate] = unk_id
+    return x_hat
 
 
 def interpolate(start, end, steps):
