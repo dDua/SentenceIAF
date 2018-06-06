@@ -239,10 +239,13 @@ def main(_):
                 logging.info('Iteration: %i - Training Loss: %0.4f.' % (t, loss))
 
                 # Print a greedy sample
-                z = torch.randn(1, config['model']['dim'])
+                z_0 = torch.randn(1, config['model']['dim'])
                 if torch.cuda.is_available:
-                    z = z.cuda()
-                logp, sample = generative_model(z)
+                    z_0 = z_0.cuda()
+                #  TODO: Figure out wtf to do w/ `h`...
+                h = None
+                z_k, _ = inference_network.normalizing_flow(z_0, h)
+                _, sample = generative_model(z_k)
                 example = [vocab.id2word(int(x)) for x in sample[0]]
                 try:
                     T = example.index(vocab.eos_token)
