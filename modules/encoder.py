@@ -44,7 +44,7 @@ class RNNTextEncoder(nn.Module):
         self.hidden2mean = nn.Linear(hidden_size * self.num_directions, dim)
         self.hidden2logv = nn.Linear(hidden_size * self.num_directions, dim)
         if self.h_dim is not None:
-            self.hidden2h = nn.linear(hidden_size * self.num_directions, h_dim)
+            self.hidden2h = nn.Linear(hidden_size * self.num_directions, h_dim)
 
     def forward(self, x, lengths):
         """Computes forward pass of the text encoder.

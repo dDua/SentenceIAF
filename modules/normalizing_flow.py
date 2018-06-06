@@ -190,7 +190,7 @@ class RadialMap(Map):
                 The log-determinant of the transformation.
         """
         # Ensure invertibility using approach in appendix A.2
-        beta_prime = -self.alpha + torch.softplus(self.beta)
+        beta_prime = -self.alpha + F.softplus(self.beta)
 
         # Compute f_z and logdet using Equation 14.
         diff = z - self.z0
@@ -233,11 +233,14 @@ class LinearMap(Map):
 
         # Compute f_z using Equation in Appendix A.
         l_mat = torch.zeros(batch_size, self.dim, self.dim)
+        if torch.cuda.is_available():
+            l_mat = l_mat.cuda()
         k = 0
         for i in range(self.dim):
             for j in range(0, i + 1):
-                l_mat[:, i, j] = h[:, k] if i < j else 1
-                k += 1
+                l_mat[:, i, j] = h[:, k] if j < i else 1
+                if i != j:
+                    k += 1
         f_z = torch.matmul(l_mat, z.unsqueeze(2)).squeeze()
         return f_z, 0
 
