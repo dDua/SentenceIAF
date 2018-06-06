@@ -227,7 +227,10 @@ def main(_):
             train_loss += loss.data
 
             # Backpropagate gradients
-            loss /= config['training']['batch_size']
+            batch_size = config['training']['batch_size']
+            loss /= batch_size
+            kl /= batch_size
+            nll /= batch_size
             loss.backward()
             optimizer_in.step()
             optimizer_gm.step()
@@ -236,7 +239,8 @@ def main(_):
             if not t % config['training']['log_frequency']:
                 # Note: logged train loss only for a single batch - see
                 # tensorboard for summary over epochs
-                logging.info('Iteration: %i - Training Loss: %0.4f.' % (t, loss))
+                line = 'Iteration: %i - Loss: %0.4f. - KL: %0.4f - NLL: %0.4f'
+                logging.info(line % (t, loss.data, kl.data, nll.data))
 
                 # Print a greedy sample
                 z_0 = torch.randn(1, config['model']['dim'])
