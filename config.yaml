@@ -12,6 +12,7 @@ model:
         embedding_size: 300
         hidden_size: 256
         bidirectional: False
+        h_dim: 66 # should be dim * (dim - 1) / 2 if map_type is 'linear'
     normalizing_flow:
         map_type: 'planar'
         K: 12
