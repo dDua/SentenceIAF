@@ -12,53 +12,40 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""Generate sentences from model and inspect interpolants."""
+"""Evaluation script."""
 
 import argparse
 import os
 import logging
+import shutil
+import sys
 import torch
+import torch.nn.functional as F
 import yaml
+from math import exp, log
+from multiprocessing import cpu_count
+from tensorboardX import SummaryWriter
+from torch.utils.data import DataLoader
 
+from data import TextDataset
 from model import RNNTextInferenceNetwork, RNNTextGenerativeModel
-from utils import Vocab, interpolate, configure_logging
+from utils import Vocab, configure_logging, word_dropout
 
 
-def generate_example(inference_network, generative_model, vocab):
-        # Infer two greedy samples
-        z_0 = torch.randn(1, inference_network.dim)
-        if torch.cuda.is_available:
-            z_0 = z_0.cuda()
-        #  TODO: Figure out wtf to do w/ `h`...
-        h = None
-        z_k, _ = inference_network.normalizing_flow(z_0, h)
-        _, sample = generative_model(z_k)
-        example = [vocab.id2word(int(x)) for x in sample[0]]
-        try:
-            T = example.index(vocab.eos_token)
-            example = example[:T]
-        except ValueError:
-            pass
-        example = ' '.join(example)
-        return example, z_k
-
-
-def generate_interpolants(z_k_0, z_k_1, generative_model, vocab, steps=5):
-    import pdb; pdb.set_trace()
-    intermediate_examples = []
-    for k in range(1, steps):
-        alpha = k / steps
-        z_k = alpha * z_k_0 + (1 - alpha) * z_k_1
-        _, sample = generative_model(z_k)
-        example = [vocab.id2word(int(x)) for x in sample[0]]
-        try:
-            T = example.index(vocab.eos_token)
-            example = example[:T]
-        except ValueError:
-            pass
-        example = ' '.join(example)
-        intermediate_examples.append(example)
-    return intermediate_examples
+def suml2p(logp, target, pad_idx):
+    """Computes the sum of log2 probs."""
+    suml2p = 0.0
+    n = 0
+    for pred, idx in zip(logp, target):
+        if idx == pad_idx:
+            continue
+        else:
+            n += 1
+            # Convert base of log
+            lp = pred[idx]
+            l2p = lp / log(2)
+            suml2p += l2p
+    return suml2p, n
 
 
 def main(_):
@@ -73,13 +60,23 @@ def main(_):
     ckpt_dir = os.path.join(config['training']['ckpt_dir'],
                             config['experiment_name'])
 
-    # Load model vocab
+    # Load vocab and datasets
     logging.info('Loading the vocabulary.')
     with open(config['data']['vocab'], 'r') as f:
         vocab = Vocab.load(f)
+    logging.info('Loading test data.')
+    test_data = TextDataset(config['data']['test'],
+                             vocab=vocab,
+                             max_length=config['training']['max_length'])
+    test_loader = DataLoader(
+        dataset=test_data,
+        batch_size=config['training']['batch_size'],
+        shuffle=False,
+        num_workers=cpu_count(),
+        pin_memory=torch.cuda.is_available())
 
     # Initialize models
-    logging.info('Initializing the generative model.')
+    logging.info('Initializing the inference network and generative model.')
     inference_network = RNNTextInferenceNetwork(
         dim=config['model']['dim'],
         vocab_size=len(vocab),
@@ -106,34 +103,67 @@ def main(_):
         logging.error('No model checkpoint found. Terminating.')
         sys.exit(1)
 
+    # Init test summaries
+    test_nll = 0.0
+    test_kl = 0.0
+    test_loss = 0.0
+    test_suml2p = 0.0
+    test_n = 0.0
+
+    # Evaluate
     inference_network.eval()
     generative_model.eval()
 
-    for _ in range(FLAGS.n_samples):
-        logging.info('=== Example ===')
-        example_0, z_k_0 = generate_example(inference_network,
-                                            generative_model,
-                                            vocab)
-        example_1, z_k_1 = generate_example(inference_network,
-                                            generative_model,
-                                            vocab)
-        intermediate_examples = generate_interpolants(z_k_0, z_k_1,
-                                                      generative_model,
-                                                      vocab)
-        logging.info('Start: %s' % example_0)
-        for example in intermediate_examples:
-            logging.info(example)
-        logging.info('End: %s' % example_1)
+    for batch in test_loader:
 
-        # TODO: Formatted LaTeX table
+        x = batch['input']
+        target = batch['target']
+        lengths = batch['lengths']
+        if torch.cuda.is_available():
+            x = x.cuda()
+            target = target.cuda()
+            lengths = lengths.cuda()
+
+        # Forward pass of inference network
+        z, kl = inference_network(x, lengths)
+
+        # Teacher forcing
+        logp, _ = generative_model(z, x, lengths)
+
+        # Compute loss
+        length = logp.shape[1]
+        logp = logp.view(-1, len(vocab))
+        target = target[:,:length].contiguous().view(-1)
+        nll = F.nll_loss(logp, target, ignore_index=vocab.pad_idx,
+                         size_average=False)
+        loss = nll + kl
+        l2p, n = suml2p(logp, target, vocab.pad_idx)
+
+        # Update summaries
+        test_nll += nll.data
+        test_kl += kl.data
+        test_loss += loss.data
+        test_suml2p += l2p.data
+        test_n += n
+
+    # Normalize losses
+    test_nll /= len(test_data)
+    test_kl /= len(test_data)
+    test_loss /= len(test_data)
+    H = -test_suml2p / test_n
+    test_perplexity = 2**H
+
+    # Log output
+    logging.info('NLL: %0.4f' % test_nll)
+    logging.info('KL: %0.4f' % test_kl)
+    logging.info('ELBO: %0.4f' % test_loss)
+    logging.info('Perplexity: %0.4f' % test_perplexity)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', type=str, required=True,
                         help='Path to configuration file.')
-    parser.add_argument('--n_samples', type=int, default=10,
-                        help='Number of samples.')
     parser.add_argument('--debug_log', type=str, default=None,
                         help='If given, write DEBUG level logging events to '
                              'this file.')
