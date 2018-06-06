@@ -44,7 +44,6 @@ def generate_example(inference_network, generative_model, vocab):
 
 
 def generate_interpolants(z_k_0, z_k_1, generative_model, vocab, steps=5):
-    import pdb; pdb.set_trace()
     intermediate_examples = []
     for k in range(1, steps):
         alpha = k / steps
