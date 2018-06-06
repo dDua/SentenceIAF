@@ -230,7 +230,8 @@ class LinearMap(Map):
                 The log-determinant of the transformation.
         """
         # Compute f_z using Equation in Appendix A.
-        l_mat = torch.zeros(self.dim, self.dim)
+        batch_size = z.shape[0]
+        l_mat = torch.zeros(batch_size, self.dim, self.dim)
         for i in range(self.dim):
             for j in range(0, i + 1):
                 l_mat[:,i,j] = h[:, i*self.dim + j] if i < j else 1
