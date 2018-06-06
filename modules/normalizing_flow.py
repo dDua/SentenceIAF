@@ -190,7 +190,7 @@ class RadialMap(Map):
                 The log-determinant of the transformation.
         """
         # Ensure invertibility using approach in appendix A.2
-        beta_prime = -self.alpha + torch.softplus(self.beta)
+        beta_prime = -self.alpha + F.softplus(self.beta)
 
         # Compute f_z and logdet using Equation 14.
         diff = z - self.z0
