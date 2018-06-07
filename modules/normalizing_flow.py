@@ -230,6 +230,7 @@ class LinearMap(Map):
     """
     def __init__(self, dim):
         super(LinearMap, self).__init__(dim=dim)
+        self.cuda_available = torch.cuda.is_available()
 
     def forward(self, z, h):
         """Computes forward pass of the linear map.
@@ -257,5 +258,5 @@ class LinearMap(Map):
                 if i != j:
                     k += 1
         f_z = torch.matmul(l_mat, z.unsqueeze(2)).squeeze()
-        return f_z, 0
+        return f_z, torch.zeros(1).to('cuda' if self.cuda_available else 'cpu')
 
