@@ -110,10 +110,12 @@ def main(_):
     if not os.path.exists(summary_dir):
         logging.info('Creating summary directory: `%s`.' % summary_dir)
         os.makedirs(summary_dir)
-    summary_writer =  SummaryWriter(summary_dir)
 
     # Check for conflicting configurations
     safe_copy_config(config, FLAGS.force_overwrite)
+
+    # Init summary writer
+    summary_writer =  SummaryWriter(summary_dir)
 
     # Load vocab and datasets
     logging.info('Loading the vocabulary.')
