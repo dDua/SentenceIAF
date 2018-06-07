@@ -23,6 +23,7 @@ from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from modules import RNNTextEncoder, NormalizingFlow
 
 
+
 class RNNTextInferenceNetwork(nn.Module):
     """Infers latent variable z from observations x."""
     def __init__(self,
@@ -37,6 +38,11 @@ class RNNTextInferenceNetwork(nn.Module):
 
         self.encoder = RNNTextEncoder(dim, vocab_size, **encoder_kwargs)
         self.normalizing_flow = NormalizingFlow(dim, **normalizing_flow_kwargs)
+
+        # For numerical stability
+        self.min_std = torch.tensor(1e-15)
+        if torch.cuda.is_available():
+            self.min_std = self.min_std.cuda()
 
     def forward(self, x, lengths):
         """Computes foward pass of the inference network.
@@ -53,18 +59,19 @@ class RNNTextInferenceNetwork(nn.Module):
         """
         # Compute z_k
         batch_size = x.shape[0]
-        mean, logv, h = self.encoder(x, lengths)
+        mean, log_std, h = self.encoder(x, lengths)
         epsilon = torch.randn(batch_size, self.dim)
         if torch.cuda.is_available():
             epsilon = epsilon.cuda()
-        std = torch.exp(logv)
+        std = torch.exp(log_std)
         z_0 = mean + std * epsilon
         z_k, sum_logdet = self.normalizing_flow(z_0, h)
 
         # Compute KL divergence (discarding constants)
         # Note: Assuming p(z) ~ N(0,I) and q(z) ~ N(mean, sigma**2) (diagonal).
+        safe_std = torch.max(std, self.min_std)
         log_p_zk = -0.5 * torch.sum(z_k ** 2)
-        log_q_z0 = -0.5 * torch.sum(logv + (z_0 - mean)**2 / std)
+        log_q_z0 = -1.0 * torch.sum(safe_std.log() + 0.5 * (z_0 - mean)**2 / safe_std**2)
         sum_logdet = torch.sum(sum_logdet)
         kl = log_q_z0 - sum_logdet - log_p_zk
 

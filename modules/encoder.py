@@ -56,7 +56,7 @@ class RNNTextEncoder(nn.Module):
                                   bidirectional=bidirectional,
                                   batch_first=True)
         self.hidden2mean = nn.Linear(hidden_size * self.num_directions, dim)
-        self.hidden2logv = nn.Linear(hidden_size * self.num_directions, dim)
+        self.hidden2log_std = nn.Linear(hidden_size * self.num_directions, dim)
         if self.h_dim is not None:
             self.hidden2h = nn.Linear(hidden_size * self.num_directions, h_dim)
 
@@ -71,7 +71,7 @@ class RNNTextEncoder(nn.Module):
         Returns:
             mean: torch.Tensor(batch_size, dim). Mean used in reparameterization
                 trick.
-            std: torch.Tensor(batch_size, dim). Std. deviation used in
+            log_std: torch.Tensor(batch_size, dim). Std. deviation used in
                 reparameterization trick.
         """
         batch_size = x.shape[0]
@@ -96,11 +96,11 @@ class RNNTextEncoder(nn.Module):
 
         # FC layer
         mean = self.hidden2mean(hidden)
-        logv = self.hidden2logv(hidden)
+        log_std = self.hidden2log_std(hidden)
 
         # Stupid torch sequence unsorting -_-
         mean = mean[unsorted_idx]
-        logv = logv[unsorted_idx]
+        log_std = log_std[unsorted_idx]
 
         # Compute h vector
         if self.h_dim is not None:
@@ -109,5 +109,5 @@ class RNNTextEncoder(nn.Module):
         else:
             h = None
 
-        return mean, logv, h
+        return mean, log_std, h
 
