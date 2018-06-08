@@ -213,7 +213,7 @@ def main(_):
             logp, _ = generative_model(z, x_hat, lengths)
 
             # Obtain current value of the annealing constant
-            beta = get_beta(config, t)
+            beta = get_beta(config, t) if epoch > 3 or config['model']['normalizing_flow']['map_type'] != 'linear' else 0
 
             # Compute annealed loss
             length = logp.shape[1]
