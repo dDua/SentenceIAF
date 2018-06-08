@@ -212,7 +212,7 @@ def main(_):
                                  vocab.unk_idx)
             logp, _ = generative_model(z, x_hat, lengths)
 
-            # Obtain current value of the annealing constant
+            # Obtain current value of the annealing constant with beta trick
             beta = get_beta(config, t) if epoch > 3 or config['model']['normalizing_flow']['map_type'] != 'linear' else 0
 
             # Compute annealed loss
