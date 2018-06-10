@@ -74,7 +74,10 @@ def safe_copy_config(config, force_overwrite=False):
         shutil.copyfile(FLAGS.config, config_path)
 
 
-def get_beta(config, t):
+def get_beta(config, t, epoch, beta_trick_thr):
+    if epoch < beta_trick_thr:
+        return 0
+
     beta_0 = config['training']['beta_0']
     beta_growth_rate = config['training']['beta_growth_rate']
     linear = beta_0 + t * beta_growth_rate
@@ -213,7 +216,7 @@ def main(_):
             logp, _ = generative_model(z, x_hat, lengths)
 
             # Obtain current value of the annealing constant with beta trick
-            beta = get_beta(config, t) if epoch > 3 or config['model']['normalizing_flow']['map_type'] != 'linear' else 0
+            beta = get_beta(config, t, epoch, config['training']['beta_trick_thr'])
 
             # Compute annealed loss
             length = logp.shape[1]

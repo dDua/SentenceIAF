@@ -27,6 +27,7 @@ training:
     log_frequency: 100
     beta_0: -10.0
     beta_growth_rate: 0.002
+    beta_trick_thr: 4
     max_length: 50
     ckpt_dir: "./data/ckpt"
     summary_dir: "./data/summary"
