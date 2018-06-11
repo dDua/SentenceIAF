@@ -21,6 +21,7 @@ import sys
 import yaml
 
 import torch
+import torch.nn.functional as F
 
 from model import RNNTextInferenceNetwork, RNNTextGenerativeModel
 from utils import Vocab, configure_logging
@@ -43,17 +44,21 @@ class Beam(object):
         batch_size = z.shape[0]
         sos_x = self.sos_idx * torch.ones(batch_size, 1, dtype=torch.int64)
         sample = torch.zeros(batch_size, self.max_length)
+        init_log_softmax = torch.zeros(1)
         if torch.cuda.is_available():
             sos_x = sos_x.cuda()
             sample = sample.cuda()
+            init_log_softmax = init_log_softmax.cuda()
 
         # Initial hidden state
         hidden = self.gen_model.latent2hidden(z)
         hidden.unsqueeze_(0)
 
+        log_softmax_list = list()
         sample_list = list()
         x_list = list()
         hidden_list = list()
+        log_softmax_list.append(init_log_softmax)
         sample_list.append(sample)
         x_list.append(sos_x)
         hidden_list.append(hidden)
@@ -62,35 +67,43 @@ class Beam(object):
             tmp_sample_list = list()
             tmp_x_list = list()
             tmp_hidden_list = list()
-            all_top_logit_idx_tuple_list = list()
+            all_top_logit_tuple_list = list()
+
             for j in range(len(x_list)):
                 x = x_list[j]
-                hidden = hidden_list[j]
+                input_hidden = hidden_list[j]
                 # Embed
                 embeddings = self.gen_model.embedding(x)
                 # Feed through RNN
-                rnn_out, hidden = self.gen_model.decoder_rnn(embeddings, hidden)
+                rnn_out, output_hidden = self.gen_model.decoder_rnn(embeddings, input_hidden)
 
                 # Compute outputs
                 logits = self.gen_model.hidden2logp(rnn_out).squeeze(1)
+                log_softmax = F.log_softmax(logits, dim=-1)
 
                 # Sample from outputs
-                top_k_logits, top_k_xs = logits.topk(self.width)
-                for k in range(self.width):
-                    sample = sample_list[j].detach()
-                    sample[:, i] = x.detach()
-                    tmp_sample_list.append(sample)
-                    tmp_x_list.append(top_k_xs[:, k].unsqueeze(0).detach())
-                    tmp_hidden_list.append(hidden.detach())
-                    all_top_logit_idx_tuple_list.append((j, k, top_k_logits[0][k]))
+                top_k_log_softmax, top_k_xs = log_softmax.topk(self.width)
 
-            top_k_tuple_list = sorted(all_top_logit_idx_tuple_list, key=lambda tup: tup[2], reverse=True)
+                for k in range(self.width):
+                    score = log_softmax_list[j] + top_k_log_softmax[:, k]
+                    sample = sample_list[j].detach()
+                    top_x = top_k_xs[:, k].unsqueeze(0)
+                    sample[:, i] = top_x.detach()
+                    tmp_sample_list.append(sample)
+                    tmp_x_list.append(top_x.detach())
+                    tmp_hidden_list.append(output_hidden.detach())
+                    all_top_logit_tuple_list.append((j, k, score))
+
+            sorted_top_logit_tuple_list = sorted(all_top_logit_tuple_list, key=lambda tup: tup[2], reverse=True)
+            log_softmax_list = list()
             sample_list = list()
             x_list = list()
             hidden_list = list()
+
             for j in range(self.width):
-                tmp_tuple = top_k_tuple_list[j]
+                tmp_tuple = sorted_top_logit_tuple_list[j]
                 target_idx = self.width * tmp_tuple[0] + tmp_tuple[1]
+                log_softmax_list.append(tmp_tuple[2])
                 sample_list.append(tmp_sample_list[target_idx])
                 x_list.append(tmp_x_list[target_idx])
                 hidden_list.append(tmp_hidden_list[target_idx])
