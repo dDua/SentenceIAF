@@ -83,14 +83,16 @@ class Beam(object):
 
                 # Sample from outputs
                 top_k_log_softmax, top_k_xs = log_softmax.topk(self.width)
+                top_k_log_softmax.detach()
+                top_k_xs.detach()
 
                 for k in range(self.width):
                     score = log_softmax_list[j] + top_k_log_softmax[:, k]
-                    sample = sample_list[j].detach()
+                    sample = sample_list[j].clone()
                     top_x = top_k_xs[:, k].unsqueeze(0)
-                    sample[:, i] = top_x.detach()
+                    sample[:, i] = top_x
                     tmp_sample_list.append(sample)
-                    tmp_x_list.append(top_x.detach())
+                    tmp_x_list.append(top_x)
                     tmp_hidden_list.append(output_hidden.detach())
                     all_top_logit_tuple_list.append((j, k, score))
 
