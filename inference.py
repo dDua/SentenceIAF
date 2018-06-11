@@ -15,16 +15,88 @@
 """Generate sentences from model and inspect interpolants."""
 
 import argparse
-import os
 import logging
-import torch
+import os
+import sys
 import yaml
 
+import torch
+
 from model import RNNTextInferenceNetwork, RNNTextGenerativeModel
-from utils import Vocab, interpolate, configure_logging
+from utils import Vocab, configure_logging
 
 
-def generate_example(inference_network, generative_model, vocab):
+class Beam(object):
+    """Ordered beam of candidate outputs.
+    Code borrowed from OpenNMT PyTorch implementation:
+        https://github.com/OpenNMT/OpenNMT-py/blob/master/onmt/Beam.py
+    """
+    def __init__(self, vocab, width, generative_model):
+        self.pad_idx = vocab.pad_idx
+        self.sos_idx = vocab.sos_idx
+        self.eos_idx = vocab.eos_idx
+        self.width = width
+        self.gen_model = generative_model
+        self.max_length = generative_model.max_length
+
+    def search(self, z):
+        batch_size = z.shape[0]
+        sos_x = self.sos_idx * torch.ones(batch_size, 1, dtype=torch.int64)
+        sample = torch.zeros(batch_size, self.max_length)
+        if torch.cuda.is_available():
+            sos_x = sos_x.cuda()
+            sample = sample.cuda()
+
+        # Initial hidden state
+        hidden = self.gen_model.latent2hidden(z)
+        hidden.unsqueeze_(0)
+
+        sample_list = list()
+        x_list = list()
+        hidden_list = list()
+        sample_list.append(sample)
+        x_list.append(sos_x)
+        hidden_list.append(hidden)
+
+        for i in range(self.max_length):
+            tmp_sample_list = list()
+            tmp_x_list = list()
+            tmp_hidden_list = list()
+            all_top_logit_idx_tuple_list = list()
+            for j in range(len(x_list)):
+                x = x_list[j]
+                hidden = hidden_list[j]
+                # Embed
+                embeddings = self.gen_model.embedding(x)
+                # Feed through RNN
+                rnn_out, hidden = self.gen_model.decoder_rnn(embeddings, hidden)
+
+                # Compute outputs
+                logits = self.gen_model.hidden2logp(rnn_out).squeeze(1)
+
+                # Sample from outputs
+                top_k_logits, top_k_xs = logits.topk(self.width)
+                for k in range(self.width):
+                    sample = sample_list[j].detach()
+                    sample[:, i] = x.detach()
+                    tmp_sample_list.append(sample)
+                    tmp_x_list.append(top_k_xs[:, k].unsqueeze(0).detach())
+                    tmp_hidden_list.append(hidden.detach())
+                    all_top_logit_idx_tuple_list.append((j, k, top_k_logits[0][k]))
+
+            top_k_tuple_list = sorted(all_top_logit_idx_tuple_list, key=lambda tup: tup[2], reverse=True)
+            sample_list = list()
+            x_list = list()
+            hidden_list = list()
+            for j in range(self.width):
+                tmp_tuple = top_k_tuple_list[j]
+                sample_list.append(tmp_sample_list[j * tmp_tuple[0] + tmp_tuple[1]])
+                x_list.append(tmp_x_list[j * tmp_tuple[0] + tmp_tuple[1]])
+                hidden_list.append(tmp_hidden_list[j * tmp_tuple[0] + tmp_tuple[1]])
+        return sample_list[0]
+
+
+def generate_example(inference_network, generative_model, vocab, beam_width=1):
         # Infer two greedy samples
         z_0 = torch.randn(1, inference_network.dim)
         if torch.cuda.is_available:
@@ -32,7 +104,12 @@ def generate_example(inference_network, generative_model, vocab):
         #  TODO: Figure out wtf to do w/ `h`...
         h = None
         z_k, _ = inference_network.normalizing_flow(z_0, h)
-        _, sample = generative_model(z_k)
+        if beam_width == 1:
+            _, sample = generative_model(z_k)
+        else:
+            beam = Beam(vocab, beam_width, generative_model)
+            sample = beam.search(z_k)
+
         example = [vocab.id2word(int(x)) for x in sample[0]]
         try:
             T = example.index(vocab.eos_token)
@@ -112,10 +189,12 @@ def main(_):
         logging.info('=== Example ===')
         example_0, z_k_0 = generate_example(inference_network,
                                             generative_model,
-                                            vocab)
+                                            vocab,
+                                            config['model']['beam_width'])
         example_1, z_k_1 = generate_example(inference_network,
                                             generative_model,
-                                            vocab)
+                                            vocab,
+                                            config['model']['beam_width'])
         intermediate_examples = generate_interpolants(z_k_0, z_k_1,
                                                       generative_model,
                                                       vocab)
