@@ -90,9 +90,9 @@ class Beam(object):
             hidden_list = list()
             for j in range(self.width):
                 tmp_tuple = top_k_tuple_list[j]
-                sample_list.append(tmp_sample_list[j * tmp_tuple[0] + tmp_tuple[1]])
-                x_list.append(tmp_x_list[j * tmp_tuple[0] + tmp_tuple[1]])
-                hidden_list.append(tmp_hidden_list[j * tmp_tuple[0] + tmp_tuple[1]])
+                sample_list.append(tmp_sample_list[self.width * tmp_tuple[0] + tmp_tuple[1]])
+                x_list.append(tmp_x_list[self.width * tmp_tuple[0] + tmp_tuple[1]])
+                hidden_list.append(tmp_hidden_list[self.width * tmp_tuple[0] + tmp_tuple[1]])
         return sample_list[0]
 
 
