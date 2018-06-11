@@ -120,7 +120,8 @@ def generate_example(inference_network, generative_model, vocab, beam_width=1):
         #  TODO: Figure out wtf to do w/ `h`...
         h = None
         z_k, _ = inference_network.normalizing_flow(z_0, h)
-        if beam_width == 1:
+        # Debug option to use beam_width < 1, for comparing greedy one to beam_width = 1
+        if beam_width < 1:
             _, sample = generative_model(z_k)
         else:
             beam = Beam(vocab, beam_width, generative_model)
