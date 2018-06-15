@@ -17,8 +17,9 @@ The true ELBO was optimized for approximately 1 epoch (as can bee see in the gra
 | Planar Flow | 104.2 | 3.9 | 108.1 | 117.4 |
 | Radial Flow | 98.9 | 11.6 | 110.5 | 92.4 |
 | Linear IAF | 98.9 | 11.6 | 110.5 | 92.4 |
-| ResNet IAF | 70.9 | 32.3 | 103.2 | 102.3 |
-**RE**: Reconstruction Error, **KL**: Kullback-Leibler divergence, **ELBO**: Evidence Lower BOund
+| ResNet IAF | 70.9 | 32.3 | 103.2 | 102.3 |  
+
+**RE**: Reconstruction Error, **KL**: Kullback-Leibler divergence, **ELBO**: Evidence Lower Bound
 
 ### Sampled sentences with beam search
 Sentenes have been obtained after sampling from ***z*** ~ *N*(0, I).  
