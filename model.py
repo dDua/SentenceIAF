@@ -182,3 +182,91 @@ class RNNTextGenerativeModel(nn.Module):
 
         return logp, sample
 
+class CNNTextInferenceNetwork(nn.Module):
+    """Infers latent variable z from observations x."""
+    def __init__(self,
+                 dim,
+                 vocab_size,
+                 encoder_kwargs,
+                 normalizing_flow_kwargs):
+        super(CNNTextInferenceNetwork, self).__init__()
+
+        self.dim = dim
+        self.vocab_size = vocab_size
+        self.embedding = nn.Embedding(vocab_size, encoder_kwargs['embedding_size'])
+        self.enc2conv = nn.Conv2d(1,encoder_kwargs['iaf_hidden'],(3,encoder_kwargs['embedding_size']), stride=(2,1), padding=(1,0))
+        self.normalizing_flow = NormalizingFlow(dim, **normalizing_flow_kwargs)
+
+        # For numerical stability
+        self.min_std = torch.FloatTensor([1e-15])
+        if torch.cuda.is_available():
+            self.min_std = Variable(self.min_std).cuda()
+
+    def forward(self, x, lengths):
+        """Computes foward pass of the inference network.
+
+        Args:
+            x: torch.Tensor(batch_size, seq_len). Input data.
+            lengths: torch.Tensor(batch_size). List of sequence lengths of each
+                batch element.
+
+        Returns:
+            z: torch.Tensor(batch_size, dim). Latent variable sampled from
+                p(z_k | x).
+            KL: scalar. The KL divergence between q(z_k | x) and p(z_k).
+        """
+        # ENCODER
+        input_embedding = self.embedding(x)
+
+        hidden_rep = self.enc2conv(input_embedding.unsqueeze(1))
+
+        z_k, kl = self.normalizing_flow(None, hidden_rep)
+
+        return z_k, kl
+     
+class CNNTextGenerativeModel(nn.Module):
+    """Recurrent generative model for text data."""
+    def __init__(self,
+                 dim,
+                 vocab_size,
+                 hidden_size,
+                 embedding_size,
+                 sos_idx,
+                 max_length):
+        super(CNNTextGenerativeModel, self).__init__()
+
+        self.dim = dim
+        self.vocab_size = vocab_size
+        self.sos_idx = sos_idx
+        self.hidden_size = hidden_size
+        self.embedding_size = embedding_size
+
+        self.hidden2logp = nn.Linear(embedding_size, vocab_size)
+        
+        self.dec2conv = nn.ConvTranspose2d(hidden_size,1,(3,embedding_size), stride=(2,1), padding=(1,0))
+        
+       
+
+    def forward(self, z, x=None, lengths=None):
+        """Computes a forward pass of the generative model.
+
+        Args:
+            z: torch.Tensor(batch_size, dim). The latent variable.
+            x: torch.Tensor(batch_size, seq_length). Optional.
+                If not given, the generator uses greedy sampling to generate the
+                    output.
+                If given, the generator uses teacher forcing.
+
+        Returns:
+            logp: torch.Tensor(batch_size, seq_length). Log-probabilities of
+                the output.
+        """
+        outputs = self.dec2conv(z).squeeze(1)
+
+        # project outputs to vocab
+        logp = nn.functional.log_softmax(self.hidden2logp(outputs))
+
+        sample = None
+
+        return logp, sample
+
