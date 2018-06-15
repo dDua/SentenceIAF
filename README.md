@@ -5,77 +5,94 @@ This repository is adapted from https://github.com/timbmg/Sentence-VAE
 PyTorch implementation of [_Generating Sentences from a Continuous Space_](https://arxiv.org/abs/1511.06349) by Bowman et al. 2015.
 _Note: This implementation does not support LSTM's at the moment, but RNN's and GRU's._
 
-### Performance
-Training was stopped after 4 epochs. The true ELBO was optimized for approximately 1 epoch (as can bee see in the graph above). Results are averaged over entire split.
+## Example results
 
-| Split       | NLL   | KL    |
-|:------------|:------:|:-----:|
-| Train       | 99.821 | 7.944 |
-| Validation  | 103.220 | 7.346 |
-| Test        | 103.967 | 7.269 |
-### Samples
-Sentenes have been obtained after sampling from z ~ N(0, I).  
+### Performance on the Penn Tree Bank dataset
+The true ELBO was optimized for approximately 1 epoch (as can bee see in the graph above). Results are averaged over entire split.
 
-_mr . n who was n't n with his own staff and the n n n n n_  
-_in the n of the n of the u . s . companies are n't likely to be reached for comment_  
-_when they were n in the n and then they were n a n n_  
-_but the company said it will be n by the end of the n n and n n_  
-_but the company said that it will be n n of the u . s . economy_  
+| Test | RE   | KL    | ELBO   | Perplexity|
+|:------------|:------:|:-----:|:-----:|:-----:|
+| Sentence VAE [[Bowman et al., 2016]](http://www.aclweb.org/anthology/K16-1002) | 99 | 2 | 101 | 119 |
+| Sentence VAE | 106.3 | 0.1 | 106.4 | 129.2 |
+| Planar Flow | 104.2 | 3.9 | 108.1 | 117.4 |
+| Radial Flow | 98.9 | 11.6 | 110.5 | 92.4 |
+| Linear IAF | 98.9 | 11.6 | 110.5 | 92.4 |
+| ResNet IAF | 70.9 | 32.3 | 103.2 | 102.3 |  
 
-### Interpolating Sentences
-Sentenes have been obtained after sampling twice from z ~ N(0, I) and the interpolating the two samples.
+**RE**: Reconstruction Error, **KL**: Kullback-Leibler divergence, **ELBO**: Evidence Lower Bound
 
-**the company said it will be n with the exception of the company**  
-_but the company said it will be n with the exception of the company ' s shares outstanding_  
-_but the company said that the company ' s n n and n n_  
-_but the company ' s n n in the past two years ago_  
-_but the company ' s n n in the past two years ago_  
-_but in the past few years ago that the company ' s n n_  
-_but in the past few years ago that they were n't disclosed_  
-_but in the past few years ago that they were n't disclosed_  
-_but in a statement that they were n't aware of the $ n million in the past few weeks_  
-**but in a statement that they were n't paid by the end of the past few weeks**  
+### Sampled sentences with beam search
+Sentenes have been obtained after sampling from ***z*** ~ *N*(0, I).  
 
-## Training
-To run the training, please download the Penn Tree Bank data first (download from [Tomas Mikolov's webpage](http://www.fit.vutbr.cz/~imikolov/rnnlm/simple-examples.tgz)). The code expects to find at least `ptb.train.txt` and `ptb.valid.txt` in the specified data directory. The data can also be donwloaded with the `dowloaddata.sh` script.
+| Model | Beam Width | Sampled Sentence |
+|:------------|------:|:-----|
+| Sentence VAE | 1 | my husband said that you must be . |
+| | 3 | my husband had a lot of time . |
+| | 5 | my husband told me that i am . |
+| | 15 | my husband told me that lord rafe ? |
+| Planar Flow | 1 | i placed my hand on my shin and a pair of jeans . |
+| | 3 | i placed my hand on my clothes and i read it . |
+| | 5 | i placed my hand on my clothes and i read it . |
+| | 15 | i put my socks and shoes and socks and shoes and socks . |
+| Radial Flow | 1 | anna gave me a nod and said , i know you were still on the way . |
+| | 3 | ive got a couple of months, i said , you know what I do . |
+| | 5 | ive got a couple of months, and i dont know how to do it . |
+| | 15 | give me a couple of times , and i dont know how i know . |
 
+
+### Interpolating sentences
+Sentences produced by greedily decoding from points betweentwo sentence encodings with a planar VAE model.  
+
+**after a couple of months , i wondered how many of them had come to me .**  
+after a couple of months , i had to admit it was a good idea .  
+after a few moments of the first time , we had a lot .  
+in the middle of the cavern was a long pause .  
+**in the middle of the tunnel was a dazzling colour .**  
+
+---
+
+**and many of the people had been there for a while .**  
+and many of the people had been here for you .  
+and what have you done , i ?  
+and you have a little chat ?  
+**you have to do it ?**  
+
+## Experiments
+Please download the Penn Tree Bank data first (download from [Tomas Mikolov's webpage](http://www.fit.vutbr.cz/~imikolov/rnnlm/simple-examples.tgz)). The code expects to find at least `ptb.train.txt` and `ptb.valid.txt` in the specified data directory. The data can also be donwloaded with the `dowloaddata.sh` script.
+
+### Preprocessing
+Vocabuluary needs to be extracted from training data
+```
+python3 utils/preprocess.py -input data/ptb.train.txt -output data/phb.vocab.txt
+```
+
+
+### Training
 Then training can be executed with the following command:
 ```
-python3 train.py
+python3 train.py --config config.yaml
 ```
 
-The following arguments are available:
+You can switch models by changing **map_type** in `config.yaml`  
+- **planar**: Planar Flows  
+- **radial**: Radial Flows  
+- **linear**: Linear IAF  
+- **resnet**: ResNet IAF
 
-`--data_dir`  The path to the directory where PTB data is stored, and auxiliary data files will be stored.  
-`--create_data` If provided, new auxiliary data files will be created form the source data.  
-`--max_sequence_length` Specifies the cut off of long sentences.  
-`--min_occ` If a word occurs less than "min_occ" times in the corpus, it will be replaced by the <unk> token.  
-`--test` If provided, performance will also be measured on the test set.
 
-`-ep`, `--epochs`  
-`-bs`, `--batch_size`  
-`-lr`, `--learning_rate`
+### Evaluation
+After training, you can evaluate the model with test data:
+```
+python3 evaluate.py --config config.yaml
+```
 
-`-eb`, `--embedding_size`  
-`-rnn`, `--rnn_type` Either 'rnn' or 'gru'.  
-`-hs`, `--hidden_size`  
-`-nl`, `--num_layers`  
-`-bi`, `--bidirectional`  
-`-ls`, `--latent_size`  
-`-wd`, `--word_dropout` Word dropout applied to the input of the Decoder.
 
-`-af`, `--anneal_function` Either 'logistic' or 'linear'.  
-`-k`, `--k` Steepness of the logistic annealing function.  
-`-x0`, `--x0` For 'logistic', this is the mid-point (i.e. when the weight is 0.5); for 'linear' this is the denominator.
-
-`-v`, `--print_every`  
-`-tb`, `--tensorboard_logging` If provided, training progress is monitored with tensorboard.  
-`-log`, `--logdir` Directory of log files for tensorboard.  
-`-bin`,`--save_model_path` Directory where to store model checkpoints.
-
-## Inference
-For obtaining samples and interpolating between senteces, inference.py can be used.
+### Inference
+For obtaining samples and interpolating between senteces,
 ```
 python3 inference.py -c $CHECKPOINT -n $NUM_SAMPLES
 ```
+
+Note that samples cannot be generated in this manner for models inverse autoregressive flows,
+since these modelsd epend on the deterministich variable ***h*** emitted by the encoder
 
