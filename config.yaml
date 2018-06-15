@@ -1,4 +1,4 @@
-experiment_name: "DEBUG-TENSORBOARD"
+experiment_name: "ptb-linear"
 
 data:
     train: "./data/ptb.train.txt"
@@ -7,30 +7,28 @@ data:
     vocab: "./data/ptb.vocab.txt"
 
 model:
-    dim: 16
-    beam_width: 2
+    dim: 11
     encoder:
-        embedding_size: 300
-        hidden_size: 256
+        embedding_size: 350
+        hidden_size: 200
         bidirectional: False
-        # h_dim: 66 # should be dim * (dim - 1) / 2 if map_type is 'linear'
+        h_dim: 66 # should be dim * (dim - 1) / 2 if map_type is 'linear'
     normalizing_flow:
-        map_type: 'planar'
-        K: 16
+        map_type: 'linear'
+        K: 1
     generator:
-        embedding_size: 300
-        hidden_size: 256
+        embedding_size: 350
+        hidden_size: 200
 
 training:
-    epochs: 50
+    epochs: 30
+    warmup_epochs: 3
     batch_size: 32
-    learning_rate: 0.0003
+    learning_rate: 0.0005
     log_frequency: 100
-    beta_0: -10.0
-    beta_growth_rate: 0.002
-    beta_trick_thr: 4
     max_length: 50
+    unk_weight: 1.0
     ckpt_dir: "./data/ckpt"
     summary_dir: "./data/summary"
-    word_dropout_rate: 0.75
+    word_dropout_rate: 0.50
 

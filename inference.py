@@ -112,14 +112,16 @@ class Beam(object):
         return sample_list[0]
 
 
-def generate_example(inference_network, generative_model, vocab, beam_width=1):
+def generate_example(inference_network,
+                     generative_model,
+                     vocab,
+                     beam_width):
         # Infer two greedy samples
         z_0 = torch.randn(1, inference_network.dim)
         if torch.cuda.is_available:
             z_0 = z_0.cuda()
         #  TODO: Figure out wtf to do w/ `h`...
-        h = None
-        z_k, _ = inference_network.normalizing_flow(z_0, h)
+        z_k, _ = inference_network.normalizing_flow(z_0, None)
         # Debug option to use beam_width < 1, for comparing greedy one to beam_width = 1
         if beam_width < 1:
             _, sample = generative_model(z_k)
@@ -134,15 +136,33 @@ def generate_example(inference_network, generative_model, vocab, beam_width=1):
         except ValueError:
             pass
         example = ' '.join(example)
-        return example, z_k
+        if FLAGS.early_interp:
+            return example, z_0
+        else:
+            return example, z_k
 
 
-def generate_interpolants(z_k_0, z_k_1, generative_model, vocab, steps=5):
+def generate_interpolants(z_0,
+                          z_1,
+                          h,
+                          inference_network,
+                          generative_model,
+                          vocab,
+                          beam_width,
+                          steps=5):
     intermediate_examples = []
     for k in range(1, steps):
         alpha = k / steps
-        z_k = alpha * z_k_0 + (1 - alpha) * z_k_1
-        _, sample = generative_model(z_k)
+        z = (1 - alpha) * z_0 + alpha * z_1
+        if FLAGS.early_interp:
+            z_k, _ = inference_network.normalizing_flow(z, h)
+        else:
+            z_k = z
+        if beam_width < 1:
+            _, sample = generative_model(z_k)
+        else:
+            beam = Beam(vocab, beam_width, generative_model)
+            sample = beam.search(z_k)
         example = [vocab.id2word(int(x)) for x in sample[0]]
         try:
             T = example.index(vocab.eos_token)
@@ -152,6 +172,52 @@ def generate_interpolants(z_k_0, z_k_1, generative_model, vocab, steps=5):
         example = ' '.join(example)
         intermediate_examples.append(example)
     return intermediate_examples
+
+
+def interpolate(inference_network,
+                generative_model,
+                vocab):
+    for _ in range(FLAGS.n_samples):
+        logging.info('=== Example ===')
+        example_0, z_k_0 = generate_example(inference_network,
+                                            generative_model,
+                                            vocab,
+                                            FLAGS.beam_width)
+        example_1, z_k_1 = generate_example(inference_network,
+                                            generative_model,
+                                            vocab,
+                                            FLAGS.beam_width)
+        intermediate_examples = generate_interpolants(z_k_0, z_k_1, None,
+                                                      inference_network,
+                                                      generative_model,
+                                                      vocab,
+                                                      FLAGS.beam_width)
+        logging.info('Start: %s' % example_0)
+        for example in intermediate_examples:
+            logging.info(example)
+        logging.info('End: %s' % example_1)
+
+
+def sample(inference_network,
+           generative_model,
+           vocab):
+    for _ in range(FLAGS.n_samples):
+        logging.info('=== Example ===')
+        z_0 = torch.randn(1, inference_network.dim)
+        if torch.cuda.is_available:
+            z_0 = z_0.cuda()
+        z_k, _ = inference_network.normalizing_flow(z_0, None)
+        for beam_width in FLAGS.beam_widths:
+            beam = Beam(vocab, beam_width, generative_model)
+            sample = beam.search(z_k)
+            example = [vocab.id2word(int(x)) for x in sample[0]]
+            try:
+                T = example.index(vocab.eos_token)
+                example = example[:T]
+            except ValueError:
+                pass
+            example = ' '.join(example)
+            logging.info('Beam width %i: %s' % (beam_width, example))
 
 
 def main(_):
@@ -202,36 +268,39 @@ def main(_):
     inference_network.eval()
     generative_model.eval()
 
-    for _ in range(FLAGS.n_samples):
-        logging.info('=== Example ===')
-        example_0, z_k_0 = generate_example(inference_network,
-                                            generative_model,
-                                            vocab,
-                                            config['model']['beam_width'])
-        example_1, z_k_1 = generate_example(inference_network,
-                                            generative_model,
-                                            vocab,
-                                            config['model']['beam_width'])
-        intermediate_examples = generate_interpolants(z_k_0, z_k_1,
-                                                      generative_model,
-                                                      vocab)
-        logging.info('Start: %s' % example_0)
-        for example in intermediate_examples:
-            logging.info(example)
-        logging.info('End: %s' % example_1)
-
-        # TODO: Formatted LaTeX table
+    if FLAGS.which == 'interpolate':
+        interpolate(inference_network, generative_model, vocab)
+    elif FLAGS.which == 'sample':
+        sample(inference_network, generative_model, vocab)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
+
     parser.add_argument('--config', type=str, required=True,
                         help='Path to configuration file.')
-    parser.add_argument('--n_samples', type=int, default=10,
-                        help='Number of samples.')
     parser.add_argument('--debug_log', type=str, default=None,
                         help='If given, write DEBUG level logging events to '
                              'this file.')
+    parser.add_argument('-n', '--n_samples', type=int, default=10,
+                        help='Number of samples.')
+
+    subparsers = parser.add_subparsers()
+
+    interpolate_parser = subparsers.add_parser('interpolate')
+    interpolate_parser.add_argument('-e', '--early_interp', action='store_true',
+                        help='If specified interpolation is done in z0 space '
+                             'instead of zk space.')
+    interpolate_parser.add_argument('-b', '--beam_width', type=int, default=1,
+                                    help='Width used in beam search.')
+    interpolate_parser.set_defaults(which='interpolate')
+
+    sample_parser = subparsers.add_parser('sample')
+    sample_parser.add_argument('-b', '--beam_widths', type=int, nargs='+',
+                               default=[1],
+                               help='Widths used in beam search.')
+    sample_parser.set_defaults(which='sample')
+
     FLAGS, _ = parser.parse_known_args()
 
     main(_)

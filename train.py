@@ -74,15 +74,11 @@ def safe_copy_config(config, force_overwrite=False):
         shutil.copyfile(FLAGS.config, config_path)
 
 
-def get_beta(config, t, epoch, beta_trick_thr):
-    if epoch < beta_trick_thr:
-        return 0
-
-    beta_0 = config['training']['beta_0']
-    beta_growth_rate = config['training']['beta_growth_rate']
-    linear = beta_0 + t * beta_growth_rate
-    beta = (1 + exp(-1 * linear))**-1
-    return beta
+def get_beta(config, epoch):
+    if epoch < config['training']['warmup_epochs']:
+        return 0.0
+    else:
+        return 1.0
 
 
 def save_checkpoint(state, is_best, filename):
@@ -174,6 +170,10 @@ def main(_):
         best_loss = float('inf')
 
     # Start train
+    weight = torch.ones(len(vocab))
+    weight[vocab.unk_idx] = config['training']['unk_weight']
+    if torch.cuda.is_available():
+        weight = weight.cuda()
     while epoch < config['training']['epochs']:
         logging.info('Starting epoch - %i.' % epoch)
 
@@ -216,13 +216,15 @@ def main(_):
             logp, _ = generative_model(z, x_hat, lengths)
 
             # Obtain current value of the annealing constant with beta trick
-            beta = get_beta(config, t, epoch, config['training']['beta_trick_thr'])
+            beta = get_beta(config, epoch)
 
             # Compute annealed loss
             length = logp.shape[1]
             logp = logp.view(-1, len(vocab))
             target = target[:,:length].contiguous().view(-1)
-            nll = F.nll_loss(logp, target, ignore_index=vocab.pad_idx,
+            nll = F.nll_loss(logp, target,
+                             ignore_index=vocab.pad_idx,
+                             weight=weight,
                              size_average=False)
             loss = nll + beta * kl
 
@@ -248,12 +250,7 @@ def main(_):
                 logging.info(line % (t, loss.data, kl.data, nll.data))
 
                 # Print a greedy sample
-                z_0 = torch.randn(1, config['model']['dim'])
-                if torch.cuda.is_available:
-                    z_0 = z_0.cuda()
-                #  TODO: Figure out wtf to do w/ `h`...
-                h = None
-                z_k, _ = inference_network.normalizing_flow(z_0, h)
+                z_k, _ = inference_network(x, lengths)
                 _, sample = generative_model(z_k)
                 example = [vocab.id2word(int(x)) for x in sample[0]]
                 try:

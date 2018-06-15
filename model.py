@@ -72,7 +72,10 @@ class RNNTextInferenceNetwork(nn.Module):
         safe_std = torch.max(std, self.min_std)
         log_p_zk = -0.5 * torch.sum(z_k ** 2)
         log_q_z0 = -1.0 * torch.sum(safe_std.log() + 0.5 * (z_0 - mean)**2 / safe_std**2)
-        sum_logdet = torch.sum(sum_logdet)
+        try:
+            sum_logdet = torch.sum(sum_logdet)
+        except TypeError: # Handles K=0
+            sum_logdet = 0.0
         kl = log_q_z0 - sum_logdet - log_p_zk
 
         return z_k, kl
@@ -148,7 +151,7 @@ class RNNTextGenerativeModel(nn.Module):
 
                 # Sample greedily from outputs
                 _, x = logits.topk(1)
-                sample[:, i] = x
+                sample[:, i] = x.squeeze(1)
                 x = x.detach()
 
         # Teacher forcing
